@@ -1,0 +1,384 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id                      String                   @id @default(cuid())
+  name                    String?
+  email                   String                   @unique
+  emailVerified           DateTime?
+  image                   String?
+  passwordHash            String?
+  role                    UserRole                 @default(CITIZEN)
+  mobileNumber            String?
+  location                String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  accounts                Account[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  sessions                Session[]
+
+  @@index([role])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// A geographical zone or habitation monitored for multi-hazard risks.
+/// Stores pre-computed ML predictions for zero-latency website loading.
+model Zone {
+  id              String            @id @default(cuid())
+  zoneId          String            @unique
+  name            String
+  state           String
+  district        String
+  lat             Float
+  lng             Float
+  minLon          Float?
+  minLat          Float?
+  maxLon          Float?
+  maxLat          Float?
+  population      Int               @default(0)
+  householdCount  Int?
+  elevationM      Float?
+  slopeClass      String?
+  isRedZone       Boolean           @default(false)
+  zoneColor       ZoneColor         @default(GREEN)
+  worstHazard     HazardType?
+  worstScore      Float             @default(0.0)
+  priority        PriorityTier      @default(NONE)
+  priorityScore   Float             @default(0.0)
+  floodScore      Float             @default(0.0)
+  landslideScore  Float             @default(0.0)
+  erosionScore    Float             @default(0.0)
+  cloudburstScore Float             @default(0.0)
+  lastAssessedAt  DateTime?         @default(now())
+  isStale         Boolean           @default(false)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  history         HazardHistory[]
+  readings        HazardReading[]
+  relocationPlans RelocationPlan?
+  staticFields    StaticZoneField[]
+  analytics       ZoneAnalytics?
+
+  @@index([zoneColor])
+  @@index([priority])
+  @@index([district])
+  @@index([lastAssessedAt])
+}
+
+/// Pre-computed / synchronized ML analytics and statistical telemetry per zone
+model ZoneAnalytics {
+  id                        String      @id @default(cuid())
+  zoneId                    String      @unique
+  meanWorstScore            Float       @default(0.0)
+  peakWorstScore            Float       @default(0.0)
+  volatilityIndex           Float       @default(0.0)
+  rainfallCorrelation       Float       @default(0.0)
+  riverCorrelation          Float       @default(0.0)
+  saturationCorrelation     Float       @default(0.0)
+  primaryHazardDriver       HazardType?
+  secondaryHazardDriver     HazardType?
+  escalationProbabilityPct  Float       @default(0.0)
+  daysAboveWarning          Int         @default(0)
+  daysAboveCritical         Int         @default(0)
+  anomaliesDetectedCount    Int         @default(0)
+  recommendedShelters       Json?
+  generatedBriefing         String?     @db.Text
+  updatedAt                 DateTime    @default(now()) @updatedAt
+  zone                      Zone        @relation(fields: [zoneId], references: [zoneId], onDelete: Cascade)
+
+  @@index([zoneId])
+}
+
+/// Slow-changing GIS attributes imported from source datasets.
+model StaticZoneField {
+  id         String   @id @default(cuid())
+  zoneId     String
+  fieldName  String
+  value      Float?
+  source     String
+  ingestedAt DateTime @default(now())
+  zone       Zone     @relation(fields: [zoneId], references: [zoneId], onDelete: Cascade)
+
+  @@unique([zoneId, fieldName])
+  @@index([zoneId])
+}
+
+/// Raw & normalized telemetry readings captured per hazard for a zone.
+model HazardReading {
+  id            String      @id @default(cuid())
+  zoneId        String
+  hazardType    HazardType
+  source        String
+  recordedAt    DateTime    @default(now())
+  dataQuality   DataQuality @default(RAW)
+  parameters    Json
+  imputedFields String[]    @default([])
+  droppedFields String[]    @default([])
+  zone          Zone        @relation(fields: [zoneId], references: [zoneId], onDelete: Cascade)
+
+  @@index([zoneId, hazardType])
+  @@index([recordedAt])
+}
+
+/// Historical risk time-series for Advanced Analytics and trend forecasting.
+model HazardHistory {
+  id                String    @id @default(cuid())
+  zoneId            String
+  recordedAt        DateTime  @default(now())
+  floodScore        Float
+  landslideScore    Float
+  erosionScore      Float
+  cloudburstScore   Float
+  worstScore        Float
+  zoneColor         ZoneColor
+  rainfallMm        Float?
+  riverLevelM       Float?
+  temperatureC      Float?
+  soilSaturationPct Float?
+  dischargeCumecs   Float?
+  humidityPct       Float?
+  windSpeedKmh      Float?
+  confidence        Float?
+  zone              Zone      @relation(fields: [zoneId], references: [zoneId], onDelete: Cascade)
+
+  @@index([zoneId, recordedAt])
+}
+
+/// A verified safe relocation destination evaluated against Sphere Standards.
+/// Sphere Project Minimum Standard: 45 sqm total area per person in emergency settlements.
+model RelocationSite {
+  id                         String                 @id @default(cuid())
+  siteCode                   String                 @unique
+  name                       String
+  district                   String
+  state                      String
+  lat                        Float
+  lng                        Float
+  totalAreaSqm               Float
+  usableAreaSqm              Float
+  sphereStandardSqmPerPerson Float                  @default(45.0)
+  sphereCapacity             Int
+  currentOccupancy           Int                    @default(0)
+  remainingCapacity          Int
+  waterSourceType            String?
+  roadConnectivityRating     Int                    @default(4)
+  hospitalDistanceKm         Float?
+  powerGridStatus            Boolean                @default(true)
+  status                     RelocationSiteStatus   @default(ACTIVE)
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
+  allocations                RelocationAllocation[]
+
+  @@index([district])
+  @@index([status])
+}
+
+/// An evacuation & resettlement action plan matching a red/yellow zone to safe sites.
+model RelocationPlan {
+  id                  String                 @id @default(cuid())
+  zoneId              String                 @unique
+  totalEvacuees       Int
+  timeline            String
+  shortfall           Int                    @default(0)
+  isFullyAccommodated Boolean                @default(true)
+  priorityRank        Int                    @default(1)
+  notes               String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  allocations         RelocationAllocation[]
+  zone                Zone                   @relation(fields: [zoneId], references: [zoneId], onDelete: Cascade)
+
+  @@index([zoneId])
+}
+
+/// Individual allocation link connecting a red zone habitation to a relocation site
+/// including verified road route coordinates.
+model RelocationAllocation {
+  id                    String         @id @default(cuid())
+  planId                String
+  siteId                String
+  allocatedPopulation   Int
+  distanceKm            Float
+  roadRouteCoordinates  Json?
+  routeStatus           RouteStatus    @default(CLEAR)
+  estimatedTransitHours Float?
+  plan                  RelocationPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  site                  RelocationSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@index([siteId])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model habitations {
+  id                Int                      @id @default(autoincrement())
+  source_id         String?                  @unique
+  name              String
+  region_id         Int?
+  geom              Unsupported("geometry")?
+  zone_class        String?
+  hazard_prob       Float?
+  evacuees          Int?                     @default(0)
+  timeline          String?
+  slope_class       String?
+  rainfall_mm       Float?
+  discharge_cumecs  Float?
+  dist_river_m      Float?
+  isolation_index   Float?
+  dest_id           Int?
+  alert_sent        Boolean?                 @default(false)
+  created_at        DateTime?                @default(now()) @db.Timestamptz(6)
+  habitations       habitations?             @relation("habitationsTohabitations", fields: [dest_id], references: [id], onUpdate: NoAction)
+  other_habitations habitations[]            @relation("habitationsTohabitations")
+  regions           regions?                 @relation(fields: [region_id], references: [region_id], onUpdate: NoAction)
+
+  @@index([region_id, alert_sent], map: "habitations_alert_idx")
+  @@index([geom], type: Gist)
+  @@index([region_id], map: "habitations_region_idx")
+  @@index([zone_class], map: "habitations_zone_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model rag_document_log {
+  id          String    @id @default(dbgenerated("(uuid_generate_v4())::text"))
+  title       String
+  source_type String
+  chunk_count Int       @default(0)
+  ingested_at DateTime? @default(dbgenerated("(now() AT TIME ZONE 'utc'::text)")) @db.Timestamp(6)
+
+  @@index([ingested_at(sort: Desc)])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model rag_documents {
+  id         String                 @id @default(dbgenerated("(uuid_generate_v4())::text"))
+  content    String
+  metadata   Json?                  @default("{}")
+  embedding  Unsupported("vector")?
+  created_at DateTime?              @default(now()) @db.Timestamptz(6)
+
+  @@index([embedding], map: "rag_documents_embedding_hnsw_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model regions {
+  region_id    Int           @id @default(autoincrement())
+  slug         String?       @unique
+  display_name String
+  hazard_types String[]      @default([])
+  created_at   DateTime?     @default(now()) @db.Timestamptz(6)
+  habitations  habitations[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model spatial_ref_sys {
+  srid      Int     @id
+  auth_name String? @db.VarChar(256)
+  auth_srid Int?
+  srtext    String? @db.VarChar(2048)
+  proj4text String? @db.VarChar(2048)
+}
+
+enum UserRole {
+  CITIZEN
+  DEPARTMENT_OFFICIAL
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum HazardType {
+  FLOOD
+  LANDSLIDE
+  EROSION
+  CLOUDBURST
+}
+
+enum ZoneColor {
+  RED
+  YELLOW
+  GREEN
+}
+
+enum PriorityTier {
+  IMMEDIATE
+  SHORT_TERM
+  MEDIUM_TERM
+  NONE
+}
+
+enum DataQuality {
+  RAW
+  IMPUTED
+  STALE
+}
+
+enum RelocationSiteStatus {
+  ACTIVE
+  PLANNED
+  FULL
+  MAINTENANCE
+}
+
+enum RouteStatus {
+  CLEAR
+  CONGESTED
+  BLOCKED
+  HAZARDOUS
+}
